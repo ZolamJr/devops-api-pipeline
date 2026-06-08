@@ -1,0 +1,74 @@
+# Nom affiché dans l'onglet Actions de GitHub
+name: CI/CD Pipeline
+
+# Déclencheurs : quand ce pipeline se lance
+on:
+  push:
+    branches: [main]       # à chaque push sur main
+  pull_request:
+    branches: [main]       # à chaque Pull Request
+
+jobs:
+
+  # ── JOB 1 : Vérifie que le code est propre ──────────
+  lint:
+    name: Lint du code
+    runs-on: ubuntu-latest   # GitHub fournit une machine Ubuntu
+
+    steps:
+      - name: Récupérer le code
+        uses: actions/checkout@v4
+
+      - name: Installer Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Installer les dépendances
+        run: npm ci
+
+      - name: Lancer ESLint
+        run: npm run lint
+
+  # ── JOB 2 : Lance les tests ──────────────────────────
+  test:
+    name: Tests unitaires
+    runs-on: ubuntu-latest
+    needs: lint              # démarre SEULEMENT si lint passe
+
+    steps:
+      - name: Récupérer le code
+        uses: actions/checkout@v4
+
+      - name: Installer Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Installer les dépendances
+        run: npm ci
+
+      - name: Lancer les tests
+        run: npm test
+
+  # ── JOB 3 : Construit l'image Docker ─────────────────
+  build:
+    name: Build Docker
+    runs-on: ubuntu-latest
+    needs: test              # démarre SEULEMENT si tests passent
+
+    steps:
+      - name: Récupérer le code
+        uses: actions/checkout@v4
+
+      - name: Construire l'image
+        run: docker build -t devops-api-pipeline .
+
+      - name: Vérifier que le conteneur démarre
+        run: |
+          docker run -d -p 3000:3000 --name test-api devops-api-pipeline
+          sleep 3
+          curl --fail http://localhost:3000/health
+          docker stop test-api
