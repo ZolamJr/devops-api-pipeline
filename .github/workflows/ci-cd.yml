@@ -1,20 +1,16 @@
-# Nom affiché dans l'onglet Actions de GitHub
 name: CI/CD Pipeline
 
-# Déclencheurs : quand ce pipeline se lance
 on:
   push:
-    branches: [main]       # à chaque push sur main
+    branches: [main]
   pull_request:
-    branches: [main]       # à chaque Pull Request
+    branches: [main]
 
 jobs:
 
-  # ── JOB 1 : Vérifie que le code est propre ──────────
   lint:
     name: Lint du code
-    runs-on: ubuntu-latest   # GitHub fournit une machine Ubuntu
-
+    runs-on: ubuntu-latest
     steps:
       - name: Récupérer le code
         uses: actions/checkout@v4
@@ -23,20 +19,17 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          #cache: 'npm'
 
       - name: Installer les dépendances
-        run: npm ci
+        run: npm install
 
       - name: Lancer ESLint
         run: npm run lint
 
-  # ── JOB 2 : Lance les tests ──────────────────────────
   test:
     name: Tests unitaires
     runs-on: ubuntu-latest
-    needs: lint              # démarre SEULEMENT si lint passe
-
+    needs: lint
     steps:
       - name: Récupérer le code
         uses: actions/checkout@v4
@@ -45,25 +38,22 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          #cache: 'npm'
 
       - name: Installer les dépendances
-        run: npm ci
+        run: npm install
 
       - name: Lancer les tests
         run: npm test
 
-  # ── JOB 3 : Construit l'image Docker ─────────────────
   build:
     name: Build Docker
     runs-on: ubuntu-latest
-    needs: test              # démarre SEULEMENT si tests passent
-
+    needs: test
     steps:
       - name: Récupérer le code
         uses: actions/checkout@v4
 
-      - name: Construire l'image
+      - name: Construire l'image Docker
         run: docker build -t devops-api-pipeline .
 
       - name: Vérifier que le conteneur démarre
