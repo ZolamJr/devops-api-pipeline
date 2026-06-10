@@ -8,6 +8,16 @@ on:
   pull_request:
     branches: [main]       # à chaque Pull Request
 
+# Annule les anciens runs si on pousse plusieurs commits d'affilée
+# → économise des minutes GitHub Actions
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Bonne pratique sécurité : permissions minimales
+permissions:
+  contents: read
+
 jobs:
 
   # ── JOB 1 : Vérifie que le code est propre ──────────
@@ -19,18 +29,9 @@ jobs:
       - name: Récupérer le code
         uses: actions/checkout@v4
 
+      # package-lock.json est maintenant versionné dans le repo
+      # → plus besoin de le générer, et le cache npm fonctionne
       - name: Installer Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Générer package-lock.json s'il n'existe pas
-        run: |
-          if [ ! -f package-lock.json ]; then
-            npm install --package-lock-only
-          fi
-
-      - name: Configurer le cache npm
         uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -56,26 +57,19 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-
-      - name: Générer package-lock.json s'il n'existe pas
-        run: |
-          if [ ! -f package-lock.json ]; then
-            npm install --package-lock-only
-          fi
-
-      - name: Configurer le cache npm
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
           cache: 'npm'
 
       - name: Installer les dépendances
         run: npm ci
 
-      - name: Lancer les tests
+      - name: Lancer les tests (avec couverture)
         run: npm test
 
-  # ── JOB 3 : Construit l'image Docker ─────────────────
+      # Vérifie qu'il n'y a pas de faille connue dans les dépendances
+      - name: Audit de sécurité des dépendances
+        run: npm audit --omit=dev --audit-level=high
+
+  # ── JOB 3 : Construit et teste l'image Docker ────────
   build:
     name: Build Docker
     runs-on: ubuntu-latest
@@ -88,9 +82,24 @@ jobs:
       - name: Construire l'image
         run: docker build -t devops-api-pipeline .
 
-      - name: Vérifier que le conteneur démarre
+      - name: Vérifier que le conteneur démarre (smoke test)
         run: |
           docker run -d -p 3000:3000 --name test-api devops-api-pipeline
-          sleep 3
-          curl --fail http://localhost:3000/health
-          docker stop test-api
+
+          # On attend que /health réponde (max 15 s) au lieu
+          # d'un "sleep 3" arbitraire qui peut échouer si c'est lent
+          for i in $(seq 1 15); do
+            if curl -sf http://localhost:3000/health; then
+              echo "✅ L'API répond"
+              exit 0
+            fi
+            sleep 1
+          done
+
+          echo "❌ L'API ne répond pas, logs du conteneur :"
+          docker logs test-api
+          exit 1
+
+      - name: Nettoyage
+        if: always()         # s'exécute même si l'étape précédente échoue
+        run: docker rm -f test-api || true
